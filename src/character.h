@@ -1809,6 +1809,12 @@ class Character : public Creature, public visitable<Character>
         /** Returns a value used when attempting to intimidate NPC's */
         int intimidation() const;
 
+        // --------------- Reading Stuff ---------------
+
+        /// Read time multiplier which factors in intelligence, traits, mutations, CBMs, etc...
+        /// In that sense, this can be interpreted as a character's innate reading ability
+        float read_time_mult() const;
+
         // --------------- Proficiency Stuff ----------------
         bool has_proficiency( const proficiency_id &prof ) const;
         void add_proficiency( const proficiency_id &prof, bool ignore_requirements = false );

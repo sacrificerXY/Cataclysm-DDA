@@ -180,6 +180,82 @@ TEST_CASE( "character reading speed", "[reading][character][speed]" )
     }
 }
 
+TEST_CASE( "character read time multiplier", "[reading][character][time_mult]" )
+{
+    clear_avatar();
+    Character &dummy = get_avatar();
+
+    SECTION( "A character's intelligence affects reading times" ) {
+        SECTION( "A character with average intelligence gets no penalty or bonus to read times" ) {
+            REQUIRE( dummy.get_int() == 8 );
+            CHECK( dummy.read_time_mult() == Approx( 1.0 ) );
+        }
+        SECTION( "A character gets a 5% increased read time penalty per intelligence below average" ) {
+            dummy.int_max = 7;
+            CHECK( dummy.read_time_mult() == Approx( 1.05 ) );
+            dummy.int_max = 6;
+            CHECK( dummy.read_time_mult() == Approx( 1.10 ) );
+            dummy.int_max = 5;
+            CHECK( dummy.read_time_mult() == Approx( 1.15 ) );
+            dummy.int_max = 4;
+            CHECK( dummy.read_time_mult() == Approx( 1.20 ) );
+        }
+        SECTION( "A character gets a 5% decreased read time bonus per intelligence above average" ) {
+            dummy.int_max = 9;
+            CHECK( dummy.read_time_mult() == Approx( 0.95 ) );
+            dummy.int_max = 10;
+            CHECK( dummy.read_time_mult() == Approx( 0.90 ) );
+            dummy.int_max = 12;
+            CHECK( dummy.read_time_mult() == Approx( 0.80 ) );
+            dummy.int_max = 14;
+            CHECK( dummy.read_time_mult() == Approx( 0.70 ) );
+        }
+    }
+
+    SECTION( "Some traits can affect reading times" ) {
+        SECTION( "A fast reader gets a 20% decreased reading time" ) {
+            dummy.toggle_trait( trait_id( "FASTREADER" ) );
+            CHECK( dummy.read_time_mult() == Approx( 0.80 ) );
+        }
+        SECTION( "A slow reader gets a 30% increased reading time" ) {
+            dummy.toggle_trait( trait_id( "SLOWREADER" ) );
+            CHECK( dummy.read_time_mult() == Approx( 1.30 ) );
+        }
+        SECTION( "A game master gets a 10% decreased reading time" ) {
+            dummy.toggle_trait( trait_id( "PROF_DICEMASTER" ) );
+            CHECK( dummy.read_time_mult() == Approx( 0.9 ) );
+        }
+    }
+
+    SECTION( "Some bionics can affect reading times" ) {
+        // So far, only the Aftershock mod has this ( Linguistic Coprocessor CBM )
+    }
+
+    // TODO: not sure how to phrase the test below, also does not work if character is an NPC
+    SECTION( "all the factors stated above stack multiplicatively" ) {
+        float base = dummy.read_time_mult();
+
+        dummy.int_max = 13;
+        float mult_1 = dummy.read_time_mult();
+        clear_avatar();
+
+        dummy.toggle_trait( trait_id( "SLOWREADER" ) );
+        float mult_2 = dummy.read_time_mult();
+        clear_avatar();
+
+        dummy.toggle_trait( trait_id( "PROF_DICEMASTER" ) );
+        float mult_3 = dummy.read_time_mult();
+        clear_avatar();
+
+        float expected_total_mult = base * mult_1 * mult_2 * mult_3;
+
+        dummy.int_max = 13;
+        dummy.toggle_trait( trait_id( "SLOWREADER" ) );
+        dummy.toggle_trait( trait_id( "PROF_DICEMASTER" ) );
+        CHECK( dummy.read_time_mult() == Approx( expected_total_mult ) );
+    }
+}
+
 TEST_CASE( "estimated reading time for a book", "[reading][book][time]" )
 {
     avatar dummy;

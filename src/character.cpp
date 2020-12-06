@@ -4058,20 +4058,7 @@ int Character::rust_rate() const
 
 int Character::read_speed( bool return_stat_effect ) const
 {
-    // Stat window shows stat effects on based on current stat
-    const int intel = get_int();
-    /** @EFFECT_INT increases reading speed by 3s per level above 8*/
-    int ret = to_moves<int>( 1_minutes ) - to_moves<int>( 3_seconds ) * ( intel - 8 );
-
-    if( has_bionic( afs_bio_linguistic_coprocessor ) ) { // Aftershock
-        ret *= .85;
-    }
-
-    ret *= mutation_value( "reading_speed_multiplier" );
-
-    if( ret < to_moves<int>( 1_seconds ) ) {
-        ret = to_moves<int>( 1_seconds );
-    }
+    int ret = std::round( to_moves<int>( 1_minutes ) * read_time_mult() );
     // return_stat_effect actually matters here
     return return_stat_effect ? ret : ret * 100 / to_moves<int>( 1_minutes );
 }
@@ -12814,6 +12801,20 @@ int Character::item_reload_cost( const item &it, const item &ammo, int qty ) con
     }
 
     return std::max( mv, 25 );
+}
+
+float Character::read_time_mult() const
+{
+    double mult = 1.0;
+
+    /** @EFFECT_INT decreases read times by 5% per level above 8*/
+    mult -= 0.05 * ( get_int() - 8 );
+    if( has_bionic( afs_bio_linguistic_coprocessor ) ) { // Aftershock
+        mult *= 0.85;
+    }
+    mult *= mutation_value( "reading_speed_multiplier" );
+
+    return mult;
 }
 
 book_mastery Character::get_book_mastery( const item &book ) const
