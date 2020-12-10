@@ -951,6 +951,11 @@
   },
   {
     "type": "item_action",
+    "id": "wash_items",
+    "name": { "str": "Wash items" }
+  },
+  {
+    "type": "item_action",
     "id": "WATER_PURIFIER",
     "name": { "str": "Purify some water" }
   },

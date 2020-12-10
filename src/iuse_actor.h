@@ -1115,4 +1115,24 @@ class sew_advanced_actor : public iuse_actor
         int use( player &, item &, bool, const tripoint & ) const override;
         std::unique_ptr<iuse_actor> clone() const override;
 };
+
+class wash_item_actor : public iuse_actor
+{
+    public:
+        // usage requirements per volume of total wash load
+        static constexpr int water_usage = 8; // charges
+        static constexpr int cleanser_usage = 1; // charges
+        static constexpr time_duration time_usage = 40_seconds;
+
+        bool include_soft_items = false;
+        bool include_hard_items = false;
+
+        wash_item_actor();
+        void load( const JsonObject & ) override;
+        int use( player &, item &, bool, const tripoint & ) const override;
+        ret_val<bool> can_use( const Character &, const item &, bool,
+                               const tripoint & ) const override;
+        std::string get_name() const override;
+        std::unique_ptr<iuse_actor> clone() const override;
+};
 #endif // CATA_SRC_IUSE_ACTOR_H

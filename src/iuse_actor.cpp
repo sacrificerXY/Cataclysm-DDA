@@ -60,6 +60,7 @@
 #include "morale_types.h"
 #include "mtype.h"
 #include "mutation.h"
+#include "npc.h"
 #include "output.h"
 #include "overmapbuffer.h"
 #include "pimpl.h"
@@ -4456,4 +4457,189 @@ int change_scent_iuse::use( player &p, item &it, bool, const tripoint & ) const
 std::unique_ptr<iuse_actor> change_scent_iuse::clone() const
 {
     return std::make_unique<change_scent_iuse>( *this );
+}
+
+namespace // wash helpers
+{
+
+struct wash_requirements {
+        units::volume volume;
+        int water; // charges
+        int cleanser; // charges
+        int time; // moves
+        static wash_requirements get_available( const inventory &inv ) {
+            static const itype_id itype_water( "water" );
+            static const itype_id itype_water_clean( "water_clean" );
+            static const itype_id itype_soap( "soap" );
+            static const itype_id itype_detergent( "detergent" );
+            static const auto is_liquid = []( const item & it ) {
+                return it.made_of( phase_id::LIQUID );
+            };
+            wash_requirements reqs;
+            reqs.water = std::max( inv.charges_of( itype_water, INT_MAX, is_liquid ),
+                                   inv.charges_of( itype_water_clean, INT_MAX, is_liquid ) );
+            reqs.cleanser = std::max( inv.charges_of( itype_soap ),
+                                      inv.charges_of( itype_detergent ) );
+            return reqs;
+        }
+        static wash_requirements calc_required( drop_locations items ) {
+            wash_requirements reqs;
+            for( const drop_location &pair : items ) {
+                reqs.add_item_volume( *pair.first, pair.second );
+            }
+            reqs.finalize();
+            return reqs;
+        }
+        static wash_requirements calc_required( const std::map<const item_location *, int> &items ) {
+            wash_requirements reqs;
+            for( const auto &pair : items ) {
+                reqs.add_item_volume( **pair.first, pair.second );
+            }
+            reqs.finalize();
+            return reqs;
+        }
+    private:
+        void add_item_volume( const item &i, int count ) {
+            volume += i.base_volume() * count / ( i.count_by_charges() ? i.charges : 1 );
+        }
+        void finalize() {
+            water = to_liter( volume ) * wash_item_actor::water_usage;
+            cleanser = to_liter( volume ) * wash_item_actor::cleanser_usage;
+            time = to_liter( volume ) * to_moves<int>( wash_item_actor::time_usage );
+        }
+};
+
+drop_locations get_items_to_wash( player &p, bool soft, bool hard )
+{
+    p.inv->restack( p );
+    const auto available = wash_requirements::get_available( p.crafting_inventory() );
+
+    const inventory_filter_preset preset( [soft, hard]( const item_location & location ) {
+        return location->has_flag( flag_FILTHY ) && ( ( soft && location->is_soft() ) ||
+                ( hard && !location->is_soft() ) );
+    } );
+    const auto make_raw_stats = [available](
+                                    const std::map<const item_location *, int> &locs
+    ) {
+        auto to_string = []( int val ) -> std::string {
+            if( val == INT_MAX )
+            {
+                return "inf";
+            }
+            return string_format( "%3d", val );
+        };
+        const auto required = wash_requirements::calc_required( locs );
+        using stats = inventory_selector::stats;
+        return stats{{
+                display_stat( _( "Water" ), required.water, available.water, to_string ),
+                display_stat( _( "Cleanser" ), required.cleanser, available.cleanser, to_string )
+            }};
+    };
+
+    inventory_iuse_selector inv_s( p, _( "ITEMS TO CLEAN" ), preset, make_raw_stats );
+    inv_s.add_character_items( p );
+    inv_s.add_nearby_items( PICKUP_RANGE );
+    inv_s.set_title( _( "MulticleanXX" ) );
+    inv_s.set_hint( _( "To clean x items, type a number before selecting." ) );
+
+    while( true ) {
+        if( inv_s.empty() ) {
+            popup_getkey( _( "You have nothing to clean." ) );
+            return {};
+        }
+
+        drop_locations stuff = inv_s.execute();
+        const auto required = wash_requirements::calc_required( stuff );
+
+        if( available.water < required.water ) {
+            popup_getkey( string_format(
+                              _( "You need %1$i charges of water or clean water to wash these items." ),
+                              required.water ).c_str() );
+        } else if( available.cleanser < required.water ) {
+            popup_getkey( string_format( _( "You need %1$i charges of cleansing agent to wash these items." ),
+                                         required.cleanser ).c_str() );
+        } else {
+            return stuff;
+        }
+    }
+}
+
+} // end wash helpers
+
+wash_item_actor::wash_item_actor(): iuse_actor( "wash_items" ) {}
+
+void wash_item_actor::load( const JsonObject &js )
+{
+    if( !js.has_member( "wash_type" ) ) {
+        js.throw_error( "Missing wash_type. Can be \"soft\", \"hard\", or \"all\"" );
+    }
+    std::string type;
+    js.read( "wash_type", type );
+    if( type != "soft" && type != "hard" && type != "all" ) {
+        js.throw_error( "Invalid wash_type \"" + type + "\". Should be \"soft\", \"hard\", or \"all\"" );
+    }
+
+    if( type == "soft" || type == "all" ) {
+        include_soft_items = true;
+    }
+    if( type == "hard" || type == "all" ) {
+        include_hard_items = true;
+    }
+}
+
+ret_val<bool> wash_item_actor::can_use( const Character &p, const item &, bool,
+                                        const tripoint & ) const
+{
+    if( p.fine_detail_vision_mod() > 4 ) {
+        return ret_val<bool>::make_failure( _( "You can't see to do that!" ) );
+    }
+    if( p.is_mounted() ) {
+        return ret_val<bool>::make_failure( _( "You cannot do that while mounted." ) );
+    }
+    if( p.volume_capacity() < p.volume_carried() ) {
+        return ret_val<bool>::make_failure( _( "You're carrying too much to clean anything." ) );
+    }
+    return ret_val<bool>::make_success();
+}
+
+int wash_item_actor::use( player &p, item &, bool, const tripoint & ) const
+{
+    const drop_locations to_clean = get_items_to_wash( p, include_soft_items, include_hard_items );
+    if( to_clean.empty() ) {
+        return 0;
+    }
+
+    auto required = wash_requirements::calc_required( to_clean );
+
+    const std::vector<npc *> helpers = p.get_crafting_helpers();
+    const int helpersize = p.get_num_crafting_helpers( 3 );
+    required.time = required.time * ( 1 - ( helpersize / 10 ) );
+    for( const npc *np : helpers ) {
+        add_msg( m_info, _( "%s helps with this task…" ), np->name );
+        break;
+    }
+    // Assign the activity values.
+    p.assign_activity( activity_id( "ACT_WASH" ), required.time );
+    for( const drop_location &pair : to_clean ) {
+        p.activity.targets.push_back( pair.first );
+        p.activity.values.push_back( pair.second );
+    }
+
+    return 0;
+}
+
+std::unique_ptr<iuse_actor> wash_item_actor::clone() const
+{
+    return std::make_unique<wash_item_actor>( *this );
+}
+
+std::string wash_item_actor::get_name() const
+{
+    if( include_soft_items && include_hard_items ) {
+        return _( "Wash items" );
+    } else if( include_soft_items ) {
+        return _( "Wash soft items" );
+    } else {
+        return _( "Wash hard items" );
+    }
 }
