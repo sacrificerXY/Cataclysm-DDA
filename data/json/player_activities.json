@@ -620,7 +620,7 @@
     "based_on": "speed"
   },
   {
-    "id": "ACT_WASH",
+    "id": "ACT_WASH_OLD",
     "type": "activity_type",
     "activity_level": "MODERATE_EXERCISE",
     "verb": "washing",

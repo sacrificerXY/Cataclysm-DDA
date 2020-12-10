@@ -4619,7 +4619,7 @@ int wash_item_actor::use( player &p, item &, bool, const tripoint & ) const
         break;
     }
     // Assign the activity values.
-    p.assign_activity( activity_id( "ACT_WASH" ), required.time );
+    p.assign_activity( activity_id( "ACT_WASH_OLD" ), required.time );
     for( const drop_location &pair : to_clean ) {
         p.activity.targets.push_back( pair.first );
         p.activity.values.push_back( pair.second );

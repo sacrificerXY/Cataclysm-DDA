@@ -140,7 +140,7 @@ static const activity_id ACT_PRY_NAILS( "ACT_PRY_NAILS" );
 static const activity_id ACT_ROBOT_CONTROL( "ACT_ROBOT_CONTROL" );
 static const activity_id ACT_SHAVE( "ACT_SHAVE" );
 static const activity_id ACT_VIBE( "ACT_VIBE" );
-static const activity_id ACT_WASH( "ACT_WASH" );
+static const activity_id ACT_WASH_OLD( "ACT_WASH_OLD" );
 
 static const efftype_id effect_adrenaline( "adrenaline" );
 static const efftype_id effect_antibiotic( "antibiotic" );
@@ -9597,7 +9597,7 @@ int iuse::wash_items( player *p, bool soft_items, bool hard_items )
         break;
     }
     // Assign the activity values.
-    p->assign_activity( ACT_WASH, required.time );
+    p->assign_activity( ACT_WASH_OLD, required.time );
     for( const drop_location &pair : to_clean ) {
         p->activity.targets.push_back( pair.first );
         p->activity.values.push_back( pair.second );

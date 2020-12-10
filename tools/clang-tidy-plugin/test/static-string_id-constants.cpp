@@ -57,7 +57,7 @@ activity_id f()
     ( void )construction_cat_FILTER;
     // CHECK-MESSAGES: warning: Use of string_id 'construction_cat_FILTER' should be named 'construction_category_FILTER'. [cata-static-string_id-constants]
     // CHECK-FIXES: ( void )construction_category_FILTER;
-    return activity_id( "ACT_WASH" );
+    return activity_id( "ACT_WASH_OLD" );
     // CH/ECK-MESSAGES: warning: Construction of 'activity_id' (aka 'string_id<activity_type>') from string literal should be global static constant. [cata-static-string_id-constants]
 }
 
