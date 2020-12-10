@@ -119,6 +119,36 @@ class activity_actor
 void serialize( const cata::clone_ptr<activity_actor> &actor, JsonOut &jsout );
 void deserialize( cata::clone_ptr<activity_actor> &actor, JsonIn &jsin );
 
+namespace wash
+{
+
+struct requirements {
+    // arbitrary value used for UI hint
+    // values which exceed this are considered too many
+    static constexpr float too_many = 999999;
+    // Use float to allow fractional usages
+    float water = 0; // charges
+    float cleanser = 0; // charges
+    float moves = 0; // number of moves
+};
+
+struct target {
+    // item to wash and how many of it
+    item_location loc;
+    int count;
+    // total requirements needed to wash this target
+    requirements usage;
+};
+
+// get usable requirements( water, soap, etc.) in an inventory
+requirements get_available( const inventory &inv );
+requirements calc_total( const std::vector<target> &targets );
+requirements round_up( const requirements &reqs );
+
+}
+
+// TODO: class wash_activity_actor : public activity_actor
+
 namespace activity_actors
 {
 

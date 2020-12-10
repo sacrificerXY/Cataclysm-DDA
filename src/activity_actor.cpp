@@ -2454,6 +2454,49 @@ std::unique_ptr<activity_actor> milk_activity_actor::deserialize( JsonIn &jsin )
 
     return actor.clone();
 }
+
+namespace wash // helpers
+{
+
+requirements get_available( const inventory &inv )
+{
+    static const itype_id itype_water( "water" );
+    static const itype_id itype_water_clean( "water_clean" );
+    static const itype_id itype_soap( "soap" );
+    static const itype_id itype_detergent( "detergent" );
+    static const auto is_liquid = []( const item & it ) {
+        return it.made_of( phase_id::LIQUID );
+    };
+    requirements reqs;
+    reqs.water = std::max( inv.charges_of( itype_water, requirements::too_many, is_liquid ),
+                           inv.charges_of( itype_water_clean, requirements::too_many, is_liquid ) );
+    reqs.cleanser = std::max( inv.charges_of( itype_soap, requirements::too_many ),
+                              inv.charges_of( itype_detergent, requirements::too_many ) );
+    return reqs;
+}
+
+requirements calc_total( const std::vector<target> &targets )
+{
+    requirements total;
+    for( const target &t : targets ) {
+        total.water += t.usage.water;
+        total.cleanser += t.usage.cleanser;
+        total.moves += t.usage.moves;
+    }
+    return total;
+}
+
+requirements round_up( const requirements &reqs )
+{
+    return {
+        std::ceil( reqs.water ),
+        std::ceil( reqs.cleanser ),
+        std::ceil( reqs.moves ),
+    };
+}
+
+} // end namespace wash helpers
+
 namespace activity_actors
 {
 

@@ -1119,10 +1119,11 @@ class sew_advanced_actor : public iuse_actor
 class wash_item_actor : public iuse_actor
 {
     public:
-        // usage requirements per volume of total wash load
+        // TODO: JSONize?
+        // usage requirements per volume of wash load
         static constexpr int water_usage = 8; // charges
         static constexpr int cleanser_usage = 1; // charges
-        static constexpr time_duration time_usage = 40_seconds;
+        static constexpr int move_usage = to_moves<int>( 40_seconds );
 
         bool include_soft_items = false;
         bool include_hard_items = false;
