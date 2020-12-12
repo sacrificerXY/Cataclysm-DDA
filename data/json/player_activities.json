@@ -628,6 +628,14 @@
     "based_on": "speed"
   },
   {
+    "id": "ACT_WASH",
+    "type": "activity_type",
+    "activity_level": "MODERATE_EXERCISE",
+    "verb": "washing",
+    "rooted": true,
+    "based_on": "speed"
+  },
+  {
     "id": "ACT_HACKSAW",
     "type": "activity_type",
     "activity_level": "MODERATE_EXERCISE",

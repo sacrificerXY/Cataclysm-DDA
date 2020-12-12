@@ -2458,20 +2458,24 @@ std::unique_ptr<activity_actor> milk_activity_actor::deserialize( JsonIn &jsin )
 namespace wash // helpers
 {
 
-requirements get_available( const inventory &inv )
+static const itype_id itype_water( "water" );
+static const itype_id itype_water_clean( "water_clean" );
+static const itype_id itype_soap( "soap" );
+static const itype_id itype_detergent( "detergent" );
+
+bool is_liquid( const item &it )
 {
-    static const itype_id itype_water( "water" );
-    static const itype_id itype_water_clean( "water_clean" );
-    static const itype_id itype_soap( "soap" );
-    static const itype_id itype_detergent( "detergent" );
-    static const auto is_liquid = []( const item & it ) {
-        return it.made_of( phase_id::LIQUID );
-    };
+    return it.made_of( phase_id::LIQUID );
+};
+
+requirements get_available( const Character &who )
+{
+    const inventory &inv = who.crafting_inventory();
     requirements reqs;
-    reqs.water = std::max( inv.charges_of( itype_water, requirements::too_many, is_liquid ),
-                           inv.charges_of( itype_water_clean, requirements::too_many, is_liquid ) );
-    reqs.cleanser = std::max( inv.charges_of( itype_soap, requirements::too_many ),
-                              inv.charges_of( itype_detergent, requirements::too_many ) );
+    reqs.water = inv.charges_of( itype_water, requirements::too_many, is_liquid );
+    reqs.water += inv.charges_of( itype_water_clean, requirements::too_many, is_liquid );
+    reqs.cleanser = inv.charges_of( itype_soap, requirements::too_many );
+    reqs.cleanser += inv.charges_of( itype_detergent, requirements::too_many );
     return reqs;
 }
 
@@ -2481,21 +2485,269 @@ requirements calc_total( const std::vector<target> &targets )
     for( const target &t : targets ) {
         total.water += t.usage.water;
         total.cleanser += t.usage.cleanser;
-        total.moves += t.usage.moves;
     }
     return total;
 }
 
 requirements round_up( const requirements &reqs )
 {
-    return {
-        std::ceil( reqs.water ),
-        std::ceil( reqs.cleanser ),
-        std::ceil( reqs.moves ),
-    };
+    return { std::ceil( reqs.water ), std::ceil( reqs.cleanser ) };
+}
+
+requirements round_down( const requirements &reqs )
+{
+    return { std::floor( reqs.water ), std::floor( reqs.cleanser ) };
 }
 
 } // end namespace wash helpers
+
+wash_activity_actor::wash_activity_actor( std::vector<wash::target> targets, int total_moves_required ): targets( targets ) {
+    int total_moves_required = 0;
+    for( const wash::target &w : targets ) {
+        const float volume = to_liter( w.loc->base_volume() * w.count / w.loc->count() );
+        total_moves_required += volume * wash_item_actor::move_usage;
+    }
+    moves_per_item = total_moves / targets.size();
+}
+
+activity_id wash_activity_actor::get_type() const
+{
+    return activity_id( "ACT_WASH" );
+}
+
+void wash_activity_actor::start( player_activity &act, Character &who )
+{
+    // keep washing until there are no more items or we ran out of water/cleanser
+    act.moves_left = calendar::INDEFINITELY_LONG;
+
+    std::vector<npc *> helpers = who.get_crafting_helpers();
+    if( !helpers.empty() ) {
+        helpers.resize( std::min<int>( helpers.size(), 3 ) );
+        moves_per_item *= ( 1 - ( helpers.size() / 10 ) );
+
+        const std::string them = enumerate_as_string( helpers, []( const npc * n ) {
+            return n->disp_name();
+        } );
+        who.add_msg_if_player( m_info, _( "%s helps with this task…" ), them );
+    }
+}
+
+
+bool wash_item( item &i, int count )
+{
+    // (helper func) Tries to add an item in the same location as neighbor.
+    // As a last resort, item will be directly added to map at the map location of neighbor.
+    bool add_item_next_to( const item &i, const item_location &neighbor ) {
+        using loc_type = item_location::type;
+        const loc_type type = neighbor.where();
+        float loc = 3;
+
+        if( type == loc_type::character ) {
+            Character *c = g->critter_at<Character>( neighbor.position() );
+            item *res = c->try_add( split, nullptr, false );
+            if( !res->is_null() ) {
+                std::cout << "  " << split.tname( count ) << " > " << c->disp_name() << '\n';
+                return true;
+            }
+        }
+        else if( type == loc_type::container ) {
+            ret_val<bool> try_add = neighbor.parent_item()->put_in( split, item_pocket::pocket_type::CONTAINER );
+            if( try_add.success() ) {
+                std::cout << "  " << split.tname( count ) << " > " << neighbor.parent_item()->tname() << '\n';
+                return true;
+            }
+        }
+        else if( type == loc_type::vehicle ) {
+            const cata::optional<vpart_reference> vp = get_map().veh_at(
+                        neighbor.position() ).part_with_feature( "CARGO", false );
+            if( vp ) {
+                int part = vp->part_index();
+                vehicle &veh = vp->vehicle();
+                if( veh.add_item( part, split ) ) {
+                    std::cout << "  " << split.tname( count ) << " > " << vp->part().name() << '\n';
+                    return true;
+
+                }
+                int charges_added = veh.add_charges( part, split );
+                split.mod_charges( -charges_added );
+                if( split.count() == 0 ) {
+                    std::cout << "  " << split.tname( count ) << " > [charges] " << vp->part().name() << '\n';
+                    return true;
+                }
+
+            }
+        }
+
+        const item &result = get_map().add_item_or_charges( loc.position(), split );
+        if( !result.is_null() ) {
+            std::cout << "  " << split.tname( count ) << " > map " << loc.position().to_string() << '\n';
+            return true;
+        }
+
+        return false;
+    } // end helper func
+
+    if( count == i.count() ) {
+        // no need to split, just clean in-place
+        i.unset_flag( flag_FILTHY );
+        return true;
+    }
+
+    // 1. Split item
+    item split = i.split( count );
+    if( split.is_null() ) {
+        debugmsg( string_format( "Can't split item: %s", i.tname( count ) ) );
+        return false;
+    }
+    // 2. Clean it
+    split.unset_flag( flag_FILTHY );
+    // 3. Try to add it back to where it came from
+    const bool success = add_item_next_to( split, i );
+    if( !success ) {
+        debugmsg( string_format( "Can't add split item back into the game: %s", split.tname( count ) ) );
+        return false;
+    }
+
+    return true;
+}
+
+// returns true if character is able to
+ret_val<bool> try_consume( Character &who, const wash::requirements &usage )
+{
+    // helpers
+    struct item_charges_proxy {
+        using item_filter = std::function<bool( const item & )>;
+        Character &who;
+        const itype_id id;
+        const item_filter filter;
+        const int charges;
+        int charges_used = 0;
+
+        item_charge_handler( Character &who, const itype_id &id,
+                            const item_filter &filter = return_true<item> )
+            : who( who ), id( id ), filter( filter ) {
+            charges = who.inv.charges_of( id, requirements::max, filter );
+        }
+
+        int consume_up_to( int amount ) {
+            charges_used += std::min( charges, amount );
+            return charges - charges_used;
+        }
+    }
+    void apply_changes( const std::vector<item_charges_proxy> &proxies )
+    {
+        for( const item_charges_proxy &proxy : proxies ) {
+            proxy.who.use_charges( proxy.id, proxy.charges_used, proxy.filter );
+        }
+    }
+    // end helpers
+
+    wash::requirements remaining = usage;
+
+    item_charges_proxy water( who, itype_water, is_liquid );
+    item_charges_proxy clean_water( who, itype_water_clean, is_liquid );
+
+    remaining.water = water.consume_up_to( remaining.water );
+    remaining.water = water_clean.consume_up_to( remaining.water );
+    if( remaining.water > 0 ) {
+        return ret_val<bool>::make_failure( string_format( _( "%s ran out of water!" ), who.disp_name() );
+    }
+
+    item_charges_proxy soap( who, itype_soap );
+    item_charges_proxy detergent( who, itype_detergent );
+
+    remaining.cleanser = soap.consume_up_to( remaining.cleanser );
+    remaining.cleanser = detergent.consume_up_to( remaining.cleanser );
+    if( remaining.cleanser > 0 ) {
+        return ret_val<bool>::make_failure( string_format( _( "%s ran out of cleanser!" ), who.disp_name() );
+    }
+
+    apply_changes( { water, clean_water, soap, detergent } );
+    return ret_val<bool>::success();
+}
+
+void wash_activity_actor::do_turn( player_activity &act, Character &who )
+{
+    const int moves_elapsed = prev_moves_left - act.moves_left;
+    moves_remainder += moves_elapsed;
+    // std::cout << "rem " << moves_remainder << '/' << moves_per_item << '\n';
+    wash::requirements available = get_available( who );
+
+    while( moves_remainder >= moves_per_item && !targets.empty() ) {
+        moves_remainder -= moves_per_item;
+
+        // remove item regardless if can wash or not
+        wash::target w = targets.back();
+        targets.pop_back();
+
+        if( !w.loc ) {
+            // lost item, no-op
+            // message
+            continue;
+        }
+
+        requirements total_usage = w.usage + carryover;
+        const ret_val<bool> result = try_consume( who, round_down( total_usage ) );
+        if( !result.success() ) {
+            add_msg( m_bad, result.str() );
+            break;
+        }
+        carryover = total_usage - round_down( total_usage );
+
+        add_msg( string_format( _( "Washed %s" ), w.loc->tname( w.count, true, 0, false ) ) );
+    }
+
+    prev_moves_left = act.moves_left;
+
+    if( targets.empty() ) {
+        act.moves_left = 0;
+        // don't set to null, we want to cleanup in finish
+    }
+}
+void wash_activity_actor::finish( player_activity &act, Character & )
+{
+    std::cout << "finished\n";
+    who.invalidate_crafting_inventory();
+    act.set_to_null();
+}
+void wash_activity_actor::canceled( player_activity &act, Character & )
+{
+    std::cout << "canceled\n";
+    act.set_to_null();
+}
+std::string wash_activity_actor::get_progress_message( const player_activity & ) const
+{
+    return string_format( _( "%d items remaining..." ), targets.size() );
+}
+
+void wash_activity_actor::serialize( JsonOut & ) const
+{
+
+    // // stuff to wash, in order
+    // std::vector<wash::target> targets;
+
+    // // Average moves required to wash next item
+    // // TODO: Can be improved by using volume instead, if accuracy is wanted
+    // //       Maybe even randomize so washing progress is in clumps
+    // float moves_per_item = 0;
+
+    // // For checking if we used enough moves to wash the next item
+    // float moves_remainder = 0;
+
+    // // Since wash requirements are floats, there might by carry-overs
+    // // for each successive item washing. These tracks it.
+    // float water_used_remainder = 0;
+    // float cleanser_used_remainder = 0;
+}
+std::unique_ptr<activity_actor> wash_activity_actor::deserialize( JsonIn & )
+{
+    return wash_activity_actor( {} ).clone();
+}
+
+std::unique_ptr<activity_actor> wash_activity_actor::clone() const
+{
+    return std::make_unique<wash_activity_actor>( *this );
+}
 
 namespace activity_actors
 {
@@ -2523,6 +2775,7 @@ deserialize_functions = {
     { activity_id( "ACT_STASH" ), &stash_activity_actor::deserialize },
     { activity_id( "ACT_TRY_SLEEP" ), &try_sleep_activity_actor::deserialize },
     { activity_id( "ACT_UNLOAD" ), &unload_activity_actor::deserialize },
+    { activity_id( "ACT_WASH" ), &wash_activity_actor::deserialize },
     { activity_id( "ACT_WORKOUT_HARD" ), &workout_activity_actor::deserialize },
     { activity_id( "ACT_WORKOUT_ACTIVE" ), &workout_activity_actor::deserialize },
     { activity_id( "ACT_WORKOUT_MODERATE" ), &workout_activity_actor::deserialize },

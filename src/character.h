@@ -2013,7 +2013,8 @@ class Character : public Creature, public visitable<Character>
         std::list<item> use_amount( const itype_id &it, int quantity,
                                     const std::function<bool( const item & )> &filter = return_true<item> );
         // Uses up charges
-        bool use_charges_if_avail( const itype_id &it, int quantity );
+        bool use_charges_if_avail( const itype_id &it, int quantity,
+                                   const std::function<bool( const item & )> &filter = return_true<item> );
 
         // Uses up charges
         std::list<item> use_charges( const itype_id &what, int qty,

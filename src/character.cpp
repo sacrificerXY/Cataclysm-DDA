@@ -11058,10 +11058,11 @@ std::list<item> Character::use_amount( const itype_id &it, int quantity,
     return ret;
 }
 
-bool Character::use_charges_if_avail( const itype_id &it, int quantity )
+bool Character::use_charges_if_avail( const itype_id &it, int quantity,
+                                      const std::function<bool( const item & )> &filter )
 {
-    if( has_charges( it, quantity ) ) {
-        use_charges( it, quantity );
+    if( has_charges( it, quantity, filter ) ) {
+        use_charges( it, quantity, filter );
         return true;
     }
     return false;

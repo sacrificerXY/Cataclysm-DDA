@@ -123,14 +123,15 @@ namespace wash
 {
 
 struct requirements {
-    // arbitrary value used for UI hint
-    // values which exceed this are considered too many
-    static constexpr float too_many = 999999;
+    static constexpr float max = std::numeric_limits<float>::max();
     // Use float to allow fractional usages
     float water = 0; // charges
     float cleanser = 0; // charges
-    float moves = 0; // number of moves
 };
+wash::requirements operator+( const wash::requirements &r1, const wash::requirements &r2 )
+{
+    return { r1.water + r2.water, r1.cleanser + r2.cleanser };
+}
 
 struct target {
     // item to wash and how many of it
@@ -141,13 +142,48 @@ struct target {
 };
 
 // get usable requirements( water, soap, etc.) in an inventory
-requirements get_available( const inventory &inv );
-requirements calc_total( const std::vector<target> &targets );
-requirements round_up( const requirements &reqs );
+wash::requirements get_available( const inventory &inv );
+wash::requirements calc_total( const std::vector<wash::target> &targets );
+wash::requirements round_up( const wash::requirements &reqs );
+wash::requirements round_down( const wash::requirements &reqs );
 
 }
 
-// TODO: class wash_activity_actor : public activity_actor
+class wash_activity_actor : public activity_actor
+{
+    private:
+        std::vector<wash::target> targets;
+
+        // Average number of moves required to wash an item
+        // TODO: Can be improved by using volume instead, if accuracy is wanted
+        //       Maybe even randomize so washing progress is in clumps
+        float moves_per_item = 0;
+
+        // For calculating elapsed moves in do_turn
+        int prev_moves_left = 0;
+
+        // For checking if we used enough moves to wash the next item
+        float moves_remainder = 0;
+
+        // Since wash requirements are floats and consumption is in integers,
+        // there might by carry-overs for each successive item washing.
+        // This tracks it so it can be included in the next calculations.
+        requirements carryover;
+
+    public:
+        wash_activity_actor( std::vector<wash::target> targets, int total_moves_required );
+        virtual activity_id get_type() const override;
+
+        virtual void start( player_activity &act, Character &who ) override;
+        virtual void do_turn( player_activity &act, Character &who ) override;
+        virtual void finish( player_activity &act, Character &who ) override;
+        virtual void canceled( player_activity &act, Character &who ) override;
+        virtual std::string get_progress_message( const player_activity &act ) const override;
+
+        virtual void serialize( JsonOut &jsout ) const override;
+        static std::unique_ptr<activity_actor> deserialize( JsonIn &jsin );
+        virtual std::unique_ptr<activity_actor> clone() const override;
+};
 
 namespace activity_actors
 {

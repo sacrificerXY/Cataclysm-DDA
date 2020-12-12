@@ -1131,8 +1131,7 @@ class wash_item_actor : public iuse_actor
         wash_item_actor();
         void load( const JsonObject & ) override;
         int use( player &, item &, bool, const tripoint & ) const override;
-        ret_val<bool> can_use( const Character &, const item &, bool,
-                               const tripoint & ) const override;
+        ret_val<bool> can_use( const Character &, const item &, bool, const tripoint & ) const override;
         std::string get_name() const override;
         std::unique_ptr<iuse_actor> clone() const override;
 };
